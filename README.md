@@ -1,0 +1,331 @@
+# ExplainMyBill
+
+> AI-powered bill and contract explainer — built with Next.js 14 + Claude AI
+
+ExplainMyBill helps users understand bills, contracts, and financial documents in plain English. Upload a PDF, image, or paste text and get instant AI analysis including hidden fees, risks, savings tips, and important dates.
+
+---
+
+## Tech Stack
+
+| Layer | Tech |
+|---|---|
+| Framework | Next.js 14 (App Router + TypeScript) |
+| Database | PostgreSQL + Prisma ORM |
+| Auth | NextAuth.js v4 (email/password + Google OAuth) |
+| AI | Anthropic Claude API (claude-sonnet-4-6) |
+| Payments | Stripe (subscriptions + webhooks) |
+| Styling | Tailwind CSS + custom shadcn-style components |
+| State | TanStack Query v5 |
+| File Parsing | pdf-parse + Claude Vision (images) |
+
+---
+
+## Prerequisites
+
+- **Node.js** 18.17+ — [nodejs.org](https://nodejs.org)
+- **PostgreSQL** 14+ — [postgresql.org](https://www.postgresql.org/) or use [Docker](https://www.docker.com/)
+- **Anthropic API key** — [console.anthropic.com](https://console.anthropic.com)
+- **Stripe account** (optional for payments) — [stripe.com](https://stripe.com)
+
+---
+
+## Quick Start
+
+### 1. Install dependencies
+
+```bash
+cd explainmybill
+npm install
+```
+
+### 2. Set up environment variables
+
+```bash
+# Copy the example file
+cp .env.example .env.local
+```
+
+Open `.env.local` and fill in your values:
+
+```env
+# Required
+DATABASE_URL="postgresql://postgres:password@localhost:5432/explainmybill"
+NEXTAUTH_SECRET="run: openssl rand -base64 32"
+NEXTAUTH_URL="http://localhost:3000"
+ANTHROPIC_API_KEY="sk-ant-..."
+
+# Optional (for payments)
+STRIPE_SECRET_KEY="sk_test_..."
+STRIPE_PUBLISHABLE_KEY="pk_test_..."
+STRIPE_WEBHOOK_SECRET="whsec_..."
+STRIPE_PRO_PRICE_ID="price_..."
+
+# Optional (for Google OAuth)
+GOOGLE_CLIENT_ID=""
+GOOGLE_CLIENT_SECRET=""
+```
+
+### 3. Start PostgreSQL
+
+**Option A — Using Docker (recommended for local dev):**
+```bash
+docker run --name explainmybill-db \
+  -e POSTGRES_PASSWORD=password \
+  -e POSTGRES_DB=explainmybill \
+  -p 5432:5432 \
+  -d postgres:16-alpine
+```
+
+**Option B — Local PostgreSQL:**
+```bash
+psql -U postgres -c "CREATE DATABASE explainmybill;"
+```
+
+### 4. Set up the database
+
+```bash
+# Generate Prisma client
+npm run db:generate
+
+# Push schema to database (creates all tables)
+npm run db:push
+
+# (Optional) Seed with demo data
+npm run db:seed
+```
+
+### 5. Run the development server
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## Demo Credentials (after seeding)
+
+```
+Email:    demo@explainmybill.com
+Password: Demo1234
+```
+
+---
+
+## Development Commands
+
+```bash
+npm run dev          # Start dev server (http://localhost:3000)
+npm run build        # Build for production
+npm run start        # Start production server
+npm run lint         # Run ESLint
+
+npm run db:generate  # Regenerate Prisma client after schema changes
+npm run db:push      # Push schema changes to database
+npm run db:migrate   # Create a new migration file
+npm run db:studio    # Open Prisma Studio (visual DB browser)
+npm run db:seed      # Seed demo data
+```
+
+---
+
+## Setting Up Stripe (optional)
+
+1. Create a [Stripe account](https://stripe.com) and get your test API keys
+2. Create a **Product** in Stripe Dashboard → Products → Add product
+3. Set a recurring price (e.g., €9/month) and copy the **Price ID**
+4. Add to `.env.local`:
+   ```
+   STRIPE_PRO_PRICE_ID=price_xxxxxxxxxxxxx
+   ```
+
+**For webhooks (local dev):**
+```bash
+# Install Stripe CLI
+npm install -g @stripe/stripe-cli
+
+# Login
+stripe login
+
+# Forward webhooks to your local server
+stripe listen --forward-to localhost:3000/api/stripe/webhook
+```
+
+Copy the webhook secret shown and add it:
+```
+STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxx
+```
+
+---
+
+## Setting Up Google OAuth (optional)
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project → APIs & Services → Credentials
+3. Create OAuth 2.0 Client ID (Web application)
+4. Add **Authorized redirect URIs**:
+   - `http://localhost:3000/api/auth/callback/google`
+5. Copy client ID and secret to `.env.local`
+
+---
+
+## Project Structure
+
+```
+explainmybill/
+├── prisma/
+│   ├── schema.prisma          # DB models: User, Document, Analysis
+│   └── seed.ts                # Demo data seeder
+├── src/
+│   ├── app/
+│   │   ├── (auth)/            # Login, Register pages
+│   │   │   ├── login/
+│   │   │   └── register/
+│   │   ├── (dashboard)/       # Protected: Dashboard, Upload, Documents
+│   │   │   ├── dashboard/
+│   │   │   ├── upload/
+│   │   │   ├── documents/
+│   │   │   └── settings/
+│   │   ├── api/               # API Routes
+│   │   │   ├── auth/          # NextAuth + Register
+│   │   │   ├── documents/     # CRUD + status polling
+│   │   │   ├── upload/        # File upload + AI trigger
+│   │   │   ├── stripe/        # Checkout + Webhook + Portal
+│   │   │   └── user/          # Profile management
+│   │   ├── globals.css
+│   │   ├── layout.tsx
+│   │   └── page.tsx           # Public landing page
+│   ├── components/
+│   │   ├── ui/                # Button, Card, Badge, Input, etc.
+│   │   ├── AnalysisResult.tsx # Full analysis display
+│   │   ├── DocumentCard.tsx   # Dashboard card
+│   │   ├── DocumentUploader.tsx  # Drag & drop + paste
+│   │   ├── Navbar.tsx
+│   │   ├── Providers.tsx      # SessionProvider + QueryClient
+│   │   └── UsageMeter.tsx
+│   ├── lib/
+│   │   ├── ai/analyzer.ts     # Claude AI integration
+│   │   ├── parsers/document.ts # PDF + image extraction
+│   │   ├── auth.ts            # NextAuth config
+│   │   ├── db.ts              # Prisma singleton
+│   │   ├── stripe.ts          # Stripe helpers
+│   │   └── utils.ts           # Shared utilities
+│   ├── types/
+│   │   ├── index.ts           # App types
+│   │   └── next-auth.d.ts     # Session type augmentation
+│   └── middleware.ts          # Route protection
+├── uploads/                   # Local file storage (gitignored)
+├── .env.example
+├── .env.local                 # Your actual keys (never commit)
+├── next.config.js
+├── tailwind.config.ts
+└── package.json
+```
+
+---
+
+## How Document Analysis Works
+
+```
+User uploads file
+       │
+       ▼
+POST /api/upload
+  1. Auth check + usage limit check
+  2. Validate file type + size
+  3. Save file to disk (uploads/userId/)
+  4. Create Document record (status: PROCESSING)
+  5. Return documentId immediately (202 Accepted)
+       │
+       ▼ (background)
+  6. Extract content:
+     - PDF → pdf-parse → text string
+     - Image → base64 → Claude Vision
+     - Text → direct use
+  7. Call Claude API with structured prompt
+  8. Parse JSON response
+  9. Save Analysis to DB
+ 10. Update Document status → COMPLETED
+ 11. Increment user's monthly usage counter
+       │
+       ▼
+Frontend polls /api/documents/:id/status every 3s
+  → Redirect to full analysis when COMPLETED
+```
+
+---
+
+## Deployment (Production)
+
+### Recommended: Vercel + Supabase
+
+1. **Database**: Create a [Supabase](https://supabase.com) PostgreSQL database
+2. **Deploy**: Connect GitHub repo to [Vercel](https://vercel.com)
+3. **Environment variables**: Add all `.env.local` values to Vercel project settings
+4. **File storage**: Replace local file storage with [AWS S3](https://aws.amazon.com/s3/) or [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/)
+5. **Stripe webhooks**: Add your Vercel domain to Stripe webhook endpoints
+
+### S3 File Storage (production swap)
+
+Replace `saveUploadedFile()` in `src/lib/parsers/document.ts` with:
+
+```typescript
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+
+const s3 = new S3Client({ region: process.env.AWS_REGION });
+
+export async function saveUploadedFile(buffer: Buffer, name: string, userId: string) {
+  const key = `uploads/${userId}/${Date.now()}_${name}`;
+  await s3.send(new PutObjectCommand({
+    Bucket: process.env.AWS_BUCKET!,
+    Key: key,
+    Body: buffer,
+  }));
+  return key; // Store the S3 key instead of local path
+}
+```
+
+---
+
+## Future Features & Improvements
+
+### Near-term
+- [ ] Email notifications when analysis is complete
+- [ ] Export analysis as PDF report
+- [ ] Document comparison (compare two bills)
+- [ ] Browser extension to capture bills from websites
+- [ ] Multi-language support (Spanish, French, German)
+
+### Medium-term
+- [ ] Recurring bill tracking (upload same bill monthly)
+- [ ] Spending trends and analytics dashboard
+- [ ] Provider database for comparison hints
+- [ ] Team/family accounts with shared history
+- [ ] API access for developers
+
+### Technical improvements
+- [ ] Background job queue (Bull/BullMQ) for heavy processing
+- [ ] Redis caching for frequently accessed analyses
+- [ ] WebSocket for real-time status updates (replace polling)
+- [ ] Rate limiting with Redis
+- [ ] Audit log for security compliance
+- [ ] Two-factor authentication (2FA)
+
+---
+
+## Security Notes
+
+- Uploaded files are stored in `uploads/` (gitignored, not accessible via HTTP)
+- Documents are associated with user IDs — users can only access their own files
+- API routes verify ownership before returning document data
+- Passwords are hashed with bcrypt (12 rounds)
+- NextAuth JWT tokens are signed with `NEXTAUTH_SECRET`
+- Stripe webhook signatures are verified before processing
+
+---
+
+## License
+
+MIT — use freely for personal and commercial projects.

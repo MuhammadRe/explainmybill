@@ -1,0 +1,198 @@
+// Prisma Schema for ExplainMyBill
+// Documentation: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────
+
+enum Plan {
+  FREE
+  PRO
+}
+
+enum DocumentStatus {
+  PENDING     // Uploaded, waiting for processing
+  PROCESSING  // AI is analyzing it
+  COMPLETED   // Analysis ready
+  FAILED      // Processing error occurred
+}
+
+enum DocumentType {
+  ENERGY_BILL
+  PHONE_BILL
+  INTERNET_BILL
+  INSURANCE
+  CONTRACT
+  BANK_STATEMENT
+  INVOICE
+  RENT_AGREEMENT
+  SUBSCRIPTION
+  OTHER
+}
+
+// ─────────────────────────────────────────────────────
+// USER MODEL
+// ─────────────────────────────────────────────────────
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String    @unique
+  emailVerified DateTime?
+  password      String?   // Null for OAuth users
+  image         String?
+
+  // Subscription
+  plan                    Plan     @default(FREE)
+  stripeCustomerId        String?  @unique
+  stripeSubscriptionId    String?  @unique
+  stripePriceId           String?
+  stripeCurrentPeriodEnd  DateTime?
+
+  // Usage tracking (resets monthly)
+  documentsUsedThisMonth  Int      @default(0)
+  documentsResetAt        DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  documents Document[]
+  accounts  Account[]
+  sessions  Session[]
+
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────
+// NEXTAUTH MODELS (required by Prisma adapter)
+// ─────────────────────────────────────────────────────
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ─────────────────────────────────────────────────────
+// DOCUMENT MODEL
+// ─────────────────────────────────────────────────────
+
+model Document {
+  id       String @id @default(cuid())
+  userId   String
+
+  // File metadata
+  name     String          // Original filename
+  type     DocumentType    @default(OTHER)
+  mimeType String          // e.g., "application/pdf", "image/png"
+  fileSize Int             // In bytes
+  filePath String?         // Local path or S3 key
+
+  // Extracted text content
+  rawText  String?         @db.Text
+
+  // Processing status
+  status   DocumentStatus  @default(PENDING)
+  error    String?         // Error message if FAILED
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  analysis Analysis?
+
+  @@map("documents")
+}
+
+// ─────────────────────────────────────────────────────
+// ANALYSIS MODEL — The AI-generated explanation
+// ─────────────────────────────────────────────────────
+
+model Analysis {
+  id         String @id @default(cuid())
+  documentId String @unique
+
+  // Main explanation in simple language
+  simpleExplanation String @db.Text
+
+  // Detected document category (e.g., "Energy Bill", "Mobile Contract")
+  documentType String
+
+  // Overall risk score (0-10, where 10 = very risky)
+  riskScore Int @default(0)
+
+  // JSON arrays of structured findings
+  // Each item: { title: string, description: string, amount?: string, severity?: 'low'|'medium'|'high' }
+  hiddenFees         Json @default("[]")
+
+  // Each item: { title: string, description: string, severity: 'low'|'medium'|'high' }
+  risks              Json @default("[]")
+
+  // Each item: { label: string, date: string, description: string }
+  importantDates     Json @default("[]")
+
+  // Each item: { title: string, description: string, potentialSaving?: string }
+  savingsSuggestions Json @default("[]")
+
+  // Each item: { title: string, description: string, benchmark?: string, userValue?: string }
+  comparisonHints    Json @default("[]")
+
+  // Key numbers from the document: { label: string, value: string, unit?: string }
+  keyFigures         Json @default("[]")
+
+  // Raw Claude response (for debugging/auditing)
+  rawResponse String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relations
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("analyses")
+}
