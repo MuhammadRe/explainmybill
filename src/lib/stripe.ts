@@ -9,7 +9,7 @@ if (!process.env.STRIPE_SECRET_KEY) {
 }
 
 export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY, {
-  apiVersion: '2024-04-10',
+  apiVersion: '2023-10-16',
   typescript: true,
 });
 
@@ -75,6 +75,42 @@ export async function createCheckoutSession(
     },
     // Allow promotion codes
     allow_promotion_codes: true,
+  });
+
+  return session.url!;
+}
+
+// ─── Helper: Create checkout session for credit pack ──
+
+export async function createCreditCheckout(
+  userId: string,
+  email: string,
+  name: string | null | undefined,
+  credits: number,
+  priceInCents: number
+): Promise<string> {
+  const customerId = await getOrCreateStripeCustomer(userId, email, name);
+
+  const session = await stripe.checkout.sessions.create({
+    customer: customerId,
+    mode: 'payment',
+    payment_method_types: ['card'],
+    line_items: [
+      {
+        price_data: {
+          currency: 'eur',
+          unit_amount: priceInCents,
+          product_data: {
+            name: `${credits} Analysis Credits`,
+            description: `${credits} pay-as-you-go document analyses. Credits never expire.`,
+          },
+        },
+        quantity: 1,
+      },
+    ],
+    success_url: `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?credits=added`,
+    cancel_url: `${process.env.NEXT_PUBLIC_APP_URL}/settings#billing`,
+    metadata: { userId, credits: String(credits) },
   });
 
   return session.url!;

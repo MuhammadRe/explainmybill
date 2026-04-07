@@ -12,6 +12,8 @@ import { Button } from '@/components/ui/button';
 import { DocumentCard } from '@/components/DocumentCard';
 import { UsageMeter } from '@/components/UsageMeter';
 import { FREE_PLAN_LIMIT } from '@/lib/utils';
+import { AddCardBanner } from '@/components/AddCardBanner';
+import { DashboardToast } from '@/components/DashboardToast';
 
 export const metadata = { title: 'Dashboard' };
 
@@ -30,6 +32,8 @@ export default async function DashboardPage() {
         plan: true,
         documentsUsedThisMonth: true,
         documentsResetAt: true,
+        credits: true,
+        cardOnFile: true,
         _count: { select: { documents: true } },
       },
     }),
@@ -55,6 +59,11 @@ export default async function DashboardPage() {
 
   return (
     <div className="space-y-8">
+      <DashboardToast />
+
+      {/* ── Card required banner ── */}
+      {!user.cardOnFile && user.plan !== 'PRO' && <AddCardBanner />}
+
       {/* ── Header ── */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
@@ -80,6 +89,7 @@ export default async function DashboardPage() {
         used={user.documentsUsedThisMonth}
         limit={user.plan === 'PRO' ? null : FREE_PLAN_LIMIT}
         plan={user.plan}
+        credits={user.credits}
       />
 
       {/* ── Recent documents ── */}

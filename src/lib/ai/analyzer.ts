@@ -51,6 +51,18 @@ export interface AnalysisResult {
 // System prompt — defines Claude's role and output format
 // ─────────────────────────────────────────────────────
 
+const VALIDATION_PROMPT = `You are a document classifier. Determine if the provided document is a financial document that can be analyzed for bills, costs, fees, contracts, or financial obligations.
+
+Valid document types include: bills (energy, phone, internet, water), invoices, bank statements, insurance policies, rental/lease agreements, subscriptions, financial contracts, and similar documents.
+
+Invalid document types include: resumes/CVs, academic papers, news articles, personal letters, recipes, manuals, or any non-financial content.
+
+Respond with ONLY a valid JSON object:
+{
+  "isFinancialDocument": true or false,
+  "reason": "One sentence explanation"
+}`;
+
 const SYSTEM_PROMPT = `You are ExplainMyBill, an expert financial document analyst.
 Your job is to analyze bills, contracts, and financial documents and explain them clearly to regular people.
 
@@ -121,7 +133,48 @@ GUIDELINES:
 // Main analysis function
 // ─────────────────────────────────────────────────────
 
+export class NotAFinancialDocumentError extends Error {
+  constructor(reason: string) {
+    super(reason);
+    this.name = 'NotAFinancialDocumentError';
+  }
+}
+
+async function validateIsFinancialDocument(content: ExtractedContent): Promise<void> {
+  let messageContent: Anthropic.MessageParam['content'];
+
+  if (content.type === 'text') {
+    messageContent = [{ type: 'text', text: `Classify this document:\n\n---\n${content.text.slice(0, 2000)}\n---` }];
+  } else {
+    const mediaType = content.mimeType as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
+    messageContent = [
+      { type: 'image', source: { type: 'base64', media_type: mediaType, data: content.base64 } },
+      { type: 'text', text: 'Classify this document.' },
+    ];
+  }
+
+  const response = await anthropic.messages.create({
+    model: 'claude-haiku-4-5-20251001',
+    max_tokens: 100,
+    system: VALIDATION_PROMPT,
+    messages: [{ role: 'user', content: messageContent }],
+  });
+
+  const raw = response.content[0].type === 'text' ? response.content[0].text : '';
+  const jsonMatch = raw.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('Validation response invalid');
+
+  const result = JSON.parse(jsonMatch[0]);
+  if (!result.isFinancialDocument) {
+    throw new NotAFinancialDocumentError(
+      result.reason || 'This does not appear to be a financial document.'
+    );
+  }
+}
+
 export async function analyzeDocument(content: ExtractedContent): Promise<AnalysisResult> {
+  await validateIsFinancialDocument(content);
+
   let messageContent: Anthropic.MessageParam['content'];
 
   if (content.type === 'text') {

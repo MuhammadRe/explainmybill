@@ -62,6 +62,12 @@ model User {
   documentsUsedThisMonth  Int      @default(0)
   documentsResetAt        DateTime @default(now())
 
+  // Pay-as-you-go credits (never expire)
+  credits                 Int      @default(0)
+
+  // Whether the user has a verified payment method on file
+  cardOnFile              Boolean  @default(false)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

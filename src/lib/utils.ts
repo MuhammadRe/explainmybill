@@ -45,22 +45,40 @@ export function formatRelativeDate(date: Date | string): string {
 
 // ─── Plan helpers ─────────────────────────────────────
 
-export const FREE_PLAN_LIMIT = parseInt(process.env.FREE_PLAN_LIMIT ?? '3', 10);
+export const FREE_PLAN_LIMIT = parseInt(process.env.FREE_PLAN_LIMIT ?? '1', 10);
+export const PRO_PLAN_LIMIT = parseInt(process.env.PRO_PLAN_LIMIT ?? '300', 10);
+
+export const CREDIT_PACKS = [
+  { id: 'credits_5', credits: 5, price: 399, label: '5 credits — €3.99' },
+  { id: 'credits_10', credits: 10, price: 699, label: '10 credits — €6.99' },
+] as const;
 
 export function canUploadDocument(
   plan: string,
-  documentsUsedThisMonth: number
-): { allowed: boolean; reason?: string } {
+  documentsUsedThisMonth: number,
+  credits: number = 0
+): { allowed: boolean; useCredit: boolean; reason?: string } {
   if (plan === 'PRO') {
-    return { allowed: true };
+    if (documentsUsedThisMonth >= PRO_PLAN_LIMIT) {
+      return {
+        allowed: false,
+        useCredit: false,
+        reason: `You've reached the ${PRO_PLAN_LIMIT} analyses/month limit on the Pro plan. Resets next month.`,
+      };
+    }
+    return { allowed: true, useCredit: false };
   }
-  if (documentsUsedThisMonth >= FREE_PLAN_LIMIT) {
-    return {
-      allowed: false,
-      reason: `You've used all ${FREE_PLAN_LIMIT} free analyses this month. Upgrade to Pro for unlimited analyses.`,
-    };
+  if (documentsUsedThisMonth < FREE_PLAN_LIMIT) {
+    return { allowed: true, useCredit: false };
   }
-  return { allowed: true };
+  if (credits > 0) {
+    return { allowed: true, useCredit: true };
+  }
+  return {
+    allowed: false,
+    useCredit: false,
+    reason: `You've used your free analysis this month. Buy credits or upgrade to Pro.`,
+  };
 }
 
 // ─── Severity color mapping ───────────────────────────

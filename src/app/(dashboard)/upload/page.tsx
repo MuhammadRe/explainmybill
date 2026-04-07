@@ -24,6 +24,7 @@ export default async function UploadPage() {
       plan: true,
       documentsUsedThisMonth: true,
       documentsResetAt: true,
+      credits: true,
     },
   });
 
@@ -44,6 +45,7 @@ export default async function UploadPage() {
         used={user.documentsUsedThisMonth}
         limit={user.plan === 'PRO' ? null : FREE_PLAN_LIMIT}
         plan={user.plan}
+        credits={user.credits}
       />
 
       {/* ── Upload widget ── */}

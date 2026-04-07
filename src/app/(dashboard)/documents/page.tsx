@@ -4,7 +4,7 @@
 
 import { redirect } from 'next/navigation';
 import Link from 'next/link';
-import { Upload } from 'lucide-react';
+import { Upload, ArrowLeft } from 'lucide-react';
 import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/db';
 import { Button } from '@/components/ui/button';
@@ -34,6 +34,14 @@ export default async function DocumentsPage() {
 
   return (
     <div className="space-y-6">
+      <Link
+        href="/dashboard"
+        className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground w-fit"
+      >
+        <ArrowLeft className="h-3.5 w-3.5" />
+        Dashboard
+      </Link>
+
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold">All Documents</h1>

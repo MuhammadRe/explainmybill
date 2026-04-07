@@ -16,7 +16,7 @@ export const authOptions: NextAuthOptions = {
   // Use JWT strategy so sessions are stateless (no session table lookups)
   session: {
     strategy: 'jwt',
-    maxAge: 30 * 24 * 60 * 60, // 30 days
+    maxAge: 2 * 60 * 60, // 2 hours
   },
 
   pages: {

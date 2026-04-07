@@ -30,6 +30,8 @@ export async function GET() {
       stripeCurrentPeriodEnd: true,
       documentsUsedThisMonth: true,
       documentsResetAt: true,
+      credits: true,
+      cardOnFile: true,
       createdAt: true,
       _count: { select: { documents: true } },
     },
@@ -48,6 +50,45 @@ export async function GET() {
       resetAt: user.documentsResetAt,
     },
   });
+}
+
+export async function DELETE() {
+  const session = await getAuthSession();
+  if (!session?.user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
+  const userId = (session.user as any).id as string;
+
+  const user = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { stripeSubscriptionId: true },
+  });
+
+  if (!user) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 });
+  }
+
+  // Cancel active Stripe subscription before deleting
+  if (user.stripeSubscriptionId) {
+    try {
+      const { stripe } = await import('@/lib/stripe');
+      await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+    } catch (err) {
+      console.error('Failed to cancel Stripe subscription:', err);
+      // Continue with deletion even if Stripe fails
+    }
+  }
+
+  // Delete user — cascade removes documents, analyses, accounts, sessions
+  try {
+    await prisma.user.delete({ where: { id: userId } });
+  } catch (err) {
+    console.error('Failed to delete user from DB:', err);
+    return NextResponse.json({ error: 'Failed to delete account' }, { status: 500 });
+  }
+
+  return NextResponse.json({ success: true });
 }
 
 const updateSchema = z.object({

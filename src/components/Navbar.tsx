@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 
 const navLinks = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { href: '/documents', label: 'Documents', icon: FileText },
   { href: '/upload', label: 'Upload', icon: Upload },
 ];
 
@@ -49,7 +50,7 @@ export function Navbar() {
                 href={href}
                 className={cn(
                   'flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  pathname === href
+                  pathname === href || pathname.startsWith(href + '/')
                     ? 'bg-accent text-accent-foreground'
                     : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground'
                 )}
@@ -133,7 +134,7 @@ export function Navbar() {
               onClick={() => setMobileOpen(false)}
               className={cn(
                 'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium',
-                pathname === href ? 'bg-accent' : 'text-muted-foreground'
+                pathname === href || pathname.startsWith(href + '/') ? 'bg-accent' : 'text-muted-foreground'
               )}
             >
               <Icon className="h-4 w-4" />

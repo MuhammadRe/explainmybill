@@ -1,23 +1,29 @@
 'use client';
 
 import Link from 'next/link';
-import { Zap } from 'lucide-react';
+import { Zap, Coins } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
+import { cn, PRO_PLAN_LIMIT } from '@/lib/utils';
 
 interface UsageMeterProps {
   used: number;
   limit: number | null; // null = unlimited (Pro)
   plan: string;
+  credits?: number;
 }
 
-export function UsageMeter({ used, limit, plan }: UsageMeterProps) {
+export function UsageMeter({ used, limit, plan, credits = 0 }: UsageMeterProps) {
   const isPro = plan === 'PRO';
-  const percentage = limit ? Math.min(100, (used / limit) * 100) : 0;
-  const remaining = limit ? Math.max(0, limit - used) : null;
-  const isNearLimit = limit ? percentage >= 66 : false;
-  const isAtLimit = limit ? used >= limit : false;
+  const effectiveLimit = isPro ? PRO_PLAN_LIMIT : limit;
+  const displayedUsed = effectiveLimit ? Math.min(used, effectiveLimit) : used;
+  const rawPercentage = effectiveLimit ? Math.min(100, (displayedUsed / effectiveLimit) * 100) : 0;
+  // Cap at 95% visually when credits are available so bar doesn't look fully blocked
+  const percentage = rawPercentage >= 100 && credits > 0 ? 95 : rawPercentage;
+  const remaining = effectiveLimit ? Math.max(0, effectiveLimit - used) : null;
+  const isNearLimit = effectiveLimit ? rawPercentage >= 66 : false;
+  const isAtLimit = effectiveLimit ? used >= effectiveLimit : false;
+  const isTrulyBlocked = isAtLimit && credits === 0;
 
   return (
     <div className="rounded-xl border border-border bg-card p-5">
@@ -25,17 +31,11 @@ export function UsageMeter({ used, limit, plan }: UsageMeterProps) {
         <div>
           <p className="text-sm font-medium">Monthly Usage</p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {isPro ? (
-              <span className="text-blue-600 font-medium">Unlimited analyses</span>
-            ) : (
-              <>
-                <span className={cn('font-semibold', isAtLimit ? 'text-red-600' : isNearLimit ? 'text-orange-600' : '')}>
-                  {used}
-                </span>
-                {' / '}
-                {limit} documents
-              </>
-            )}
+            <span className={cn('font-semibold', isTrulyBlocked ? 'text-red-600' : isNearLimit ? 'text-orange-600' : '')}>
+              {displayedUsed}
+            </span>
+            {' / '}
+            {isPro ? PRO_PLAN_LIMIT : limit} {isPro ? '' : 'free '}{(isPro ? PRO_PLAN_LIMIT : limit) === 1 ? 'analysis' : 'analyses'} this month
           </p>
         </div>
         {isPro ? (
@@ -49,31 +49,64 @@ export function UsageMeter({ used, limit, plan }: UsageMeterProps) {
         )}
       </div>
 
-      {!isPro && limit && (
+      <Progress
+        value={percentage}
+        className={cn(
+          'h-2 mt-3',
+          isTrulyBlocked ? '[&>div]:bg-red-500' : isNearLimit ? '[&>div]:bg-orange-500' : '[&>div]:bg-blue-500'
+        )}
+      />
+
+      {!isPro && (
         <>
-          <Progress
-            value={percentage}
-            className={cn(
-              'h-2',
-              isAtLimit ? '[&>div]:bg-red-500' : isNearLimit ? '[&>div]:bg-orange-500' : '[&>div]:bg-blue-500'
-            )}
-          />
+          {/* Credits balance */}
+          {credits > 0 && (
+            <div className="mt-3 flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+              <Coins className="h-3.5 w-3.5" />
+              {credits} pay-as-you-go {credits === 1 ? 'credit' : 'credits'} available
+            </div>
+          )}
+
           <div className="mt-3 flex items-center justify-between">
             <p className="text-xs text-muted-foreground">
-              {isAtLimit ? (
-                <span className="text-red-600 font-medium">Limit reached — resets next month</span>
+              {isAtLimit && credits === 0 ? (
+                <span className="text-red-600 font-medium">Free analysis used — buy credits or upgrade</span>
+              ) : isAtLimit ? (
+                <span className="text-emerald-600 font-medium">Using credits for next analyses</span>
               ) : (
-                <>{remaining} remaining this month</>
+                <>{remaining} free {remaining === 1 ? 'analysis' : 'analyses'} remaining</>
               )}
             </p>
-            <Link href="/settings#billing">
-              <Button size="sm" variant="gradient" className="h-7 gap-1 text-xs px-3">
-                <Zap className="h-3 w-3" />
-                Upgrade
-              </Button>
-            </Link>
+            <div className="flex gap-2">
+              {isAtLimit && (
+                <Link href="/settings#billing">
+                  <Button size="sm" variant="outline" className="h-7 gap-1 text-xs px-3">
+                    <Coins className="h-3 w-3" />
+                    Buy credits
+                  </Button>
+                </Link>
+              )}
+              <Link href="/settings#billing">
+                <Button size="sm" variant="gradient" className="h-7 gap-1 text-xs px-3">
+                  <Zap className="h-3 w-3" />
+                  Upgrade
+                </Button>
+              </Link>
+            </div>
           </div>
         </>
+      )}
+
+      {isPro && isAtLimit && (
+        <p className="mt-3 text-xs text-red-600 font-medium">
+          Monthly limit reached. Resets next month.
+        </p>
+      )}
+
+      {isPro && !isAtLimit && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          {remaining} {remaining === 1 ? 'analysis' : 'analyses'} remaining this month
+        </p>
       )}
     </div>
   );

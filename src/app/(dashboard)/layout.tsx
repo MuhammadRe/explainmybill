@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getAuthSession } from '@/lib/auth';
 import { Navbar } from '@/components/Navbar';
+import { SessionGuard } from '@/components/SessionGuard';
 
 // All dashboard routes require authentication.
 // This layout fetches the session server-side and redirects if not authenticated.
@@ -13,6 +14,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
+      <SessionGuard />
       <Navbar />
       <main className="flex-1">
         <div className="container py-8">

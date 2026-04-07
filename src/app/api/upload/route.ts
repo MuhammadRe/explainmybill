@@ -17,8 +17,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAuthSession } from '@/lib/auth';
 import prisma from '@/lib/db';
 import { saveUploadedFile, extractDocumentContent } from '@/lib/parsers/document';
-import { analyzeDocument } from '@/lib/ai/analyzer';
-import { isAllowedFileType, FREE_PLAN_LIMIT } from '@/lib/utils';
+import { analyzeDocument, NotAFinancialDocumentError } from '@/lib/ai/analyzer';
+import { isAllowedFileType, canUploadDocument } from '@/lib/utils';
 
 // Max file size: 10MB
 const MAX_FILE_SIZE = parseInt(process.env.MAX_FILE_SIZE ?? '10485760', 10);
@@ -40,6 +40,8 @@ export async function POST(req: NextRequest) {
       plan: true,
       documentsUsedThisMonth: true,
       documentsResetAt: true,
+      credits: true,
+      cardOnFile: true,
     },
   });
 
@@ -58,16 +60,23 @@ export async function POST(req: NextRequest) {
     user.documentsUsedThisMonth = 0;
   }
 
-  // Enforce free plan limit
-  if (user.plan === 'FREE' && user.documentsUsedThisMonth >= FREE_PLAN_LIMIT) {
+  // Require a card on file to prevent multi-account abuse
+  if (!user.cardOnFile && user.plan !== 'PRO') {
     return NextResponse.json(
-      {
-        error: `You've used all ${FREE_PLAN_LIMIT} free analyses this month. Upgrade to Pro for unlimited analyses.`,
-        code: 'USAGE_LIMIT_EXCEEDED',
-      },
+      { error: 'Please add a payment method to unlock your free monthly scan.', code: 'CARD_REQUIRED' },
       { status: 403 }
     );
   }
+
+  // Check upload permission (free slot or credits)
+  const permission = canUploadDocument(user.plan, user.documentsUsedThisMonth, user.credits);
+  if (!permission.allowed) {
+    return NextResponse.json(
+      { error: permission.reason, code: 'USAGE_LIMIT_EXCEEDED' },
+      { status: 403 }
+    );
+  }
+  const useCredit = permission.useCredit;
 
   // ── 3. Parse multipart form data ──────────────────
   let formData: FormData;
@@ -82,7 +91,7 @@ export async function POST(req: NextRequest) {
 
   // ── 4. Handle pasted text (no file) ──────────────
   if (pastedText && !file) {
-    return handleTextUpload(userId, pastedText);
+    return handleTextUpload(userId, pastedText, useCredit);
   }
 
   if (!file) {
@@ -130,8 +139,10 @@ export async function POST(req: NextRequest) {
 
   // ── 7. Process & analyze (async in background) ────
   // We return the document ID immediately and process asynchronously
-  processDocument(document.id, filePath, file.type, userId).catch(async (error) => {
-    console.error(`Processing failed for document ${document.id}:`, error);
+  processDocument(document.id, filePath, file.type, userId, useCredit).catch(async (error) => {
+    if (!(error instanceof NotAFinancialDocumentError)) {
+      console.error(`Processing failed for document ${document.id}:`, error);
+    }
     await prisma.document.update({
       where: { id: document.id },
       data: { status: 'FAILED', error: error.message },
@@ -150,7 +161,8 @@ async function processDocument(
   documentId: string,
   filePath: string,
   mimeType: string,
-  userId: string
+  userId: string,
+  useCredit: boolean
 ): Promise<void> {
   // Extract text or image data
   const content = await extractDocumentContent(filePath, mimeType);
@@ -192,16 +204,19 @@ async function processDocument(
     },
   });
 
-  // Increment user usage counter
+  // Increment usage counter and deduct credit if applicable
   await prisma.user.update({
     where: { id: userId },
-    data: { documentsUsedThisMonth: { increment: 1 } },
+    data: {
+      documentsUsedThisMonth: { increment: 1 },
+      ...(useCredit ? { credits: { decrement: 1 } } : {}),
+    },
   });
 }
 
 // ── Handle pasted text ────────────────────────────────
 
-async function handleTextUpload(userId: string, text: string) {
+async function handleTextUpload(userId: string, text: string, useCredit: boolean) {
   if (text.trim().length < 20) {
     return NextResponse.json({ error: 'Text is too short to analyze' }, { status: 400 });
   }
@@ -217,22 +232,19 @@ async function handleTextUpload(userId: string, text: string) {
     },
   });
 
-  processDocument(document.id, '', 'text/plain', userId)
-    .then(async () => {
-      // Text content already set above, but we need to handle the case
-      // where processDocument tries to read from filePath
-      // For pasted text, we'll handle it specially
-    })
-    .catch(async (error) => {
-      await prisma.document.update({
-        where: { id: document.id },
-        data: { status: 'FAILED', error: error.message },
-      });
-    });
+  const { analyzeDocument, NotAFinancialDocumentError } = await import('@/lib/ai/analyzer');
 
-  // For text documents, process inline since there's no file to read
-  const { analyzeDocument } = await import('@/lib/ai/analyzer');
-  const analysis = await analyzeDocument({ type: 'text', text });
+  let analysis;
+  try {
+    analysis = await analyzeDocument({ type: 'text', text });
+  } catch (error: any) {
+    await prisma.document.update({
+      where: { id: document.id },
+      data: { status: 'FAILED', error: error.message },
+    });
+    const status = error instanceof NotAFinancialDocumentError ? 422 : 500;
+    return NextResponse.json({ error: error.message }, { status });
+  }
 
   await prisma.analysis.create({
     data: {
@@ -257,7 +269,10 @@ async function handleTextUpload(userId: string, text: string) {
 
   await prisma.user.update({
     where: { id: userId },
-    data: { documentsUsedThisMonth: { increment: 1 } },
+    data: {
+      documentsUsedThisMonth: { increment: 1 },
+      ...(useCredit ? { credits: { decrement: 1 } } : {}),
+    },
   });
 
   return NextResponse.json(

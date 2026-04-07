@@ -42,8 +42,33 @@ export async function POST(req: NextRequest) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
         const userId = session.metadata?.userId;
+        if (!userId) break;
 
-        if (!userId || !session.subscription) break;
+        // ── Card setup (no charge) → unlock free tier ─
+        if (session.mode === 'setup') {
+          await prisma.user.update({
+            where: { id: userId },
+            data: { cardOnFile: true },
+          });
+          console.log(`Card saved for user ${userId}`);
+          break;
+        }
+
+        // ── Credit pack purchase (one-time payment) ───
+        if (session.mode === 'payment') {
+          const credits = parseInt(session.metadata?.credits ?? '0', 10);
+          if (credits > 0) {
+            await prisma.user.update({
+              where: { id: userId },
+              data: { credits: { increment: credits }, cardOnFile: true },
+            });
+            console.log(`Added ${credits} credits to user ${userId}`);
+          }
+          break;
+        }
+
+        // ── Pro subscription ──────────────────────────
+        if (!session.subscription) break;
 
         const subscription = await stripe.subscriptions.retrieve(
           session.subscription as string
@@ -56,6 +81,7 @@ export async function POST(req: NextRequest) {
             stripeSubscriptionId: subscription.id,
             stripePriceId: subscription.items.data[0].price.id,
             stripeCurrentPeriodEnd: new Date(subscription.current_period_end * 1000),
+            cardOnFile: true,
           },
         });
 

@@ -5,20 +5,25 @@
 // ─────────────────────────────────────────────────────
 
 import { useState, useEffect } from 'react';
-import { useSession } from 'next-auth/react';
+import { useSession, signOut } from 'next-auth/react';
 import toast from 'react-hot-toast';
-import { Loader2, User, CreditCard, Zap, CheckCircle2 } from 'lucide-react';
+import { Loader2, User, CreditCard, Zap, CheckCircle2, Coins, TriangleAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter, DialogClose,
+} from '@/components/ui/dialog';
 
 interface UserData {
   name: string;
   email: string;
   plan: string;
+  credits: number;
   stripeCurrentPeriodEnd: string | null;
   usage: {
     used: number;
@@ -29,12 +34,16 @@ interface UserData {
 }
 
 export default function SettingsPage() {
-  const { data: session, update } = useSession();
+  const { update } = useSession();
   const [userData, setUserData] = useState<UserData | null>(null);
   const [name, setName] = useState('');
   const [savingProfile, setSavingProfile] = useState(false);
   const [loadingPortal, setLoadingPortal] = useState(false);
   const [loadingCheckout, setLoadingCheckout] = useState(false);
+  const [loadingCredits, setLoadingCredits] = useState<string | null>(null);
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false);
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
 
   // Fetch user data
   useEffect(() => {
@@ -62,6 +71,40 @@ export default function SettingsPage() {
       toast.error('Failed to save profile');
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  // Delete account
+  const handleDeleteAccount = async () => {
+    setDeletingAccount(true);
+    try {
+      const res = await fetch('/api/user', { method: 'DELETE' });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Server error (${res.status})`);
+      }
+      await signOut({ callbackUrl: '/' });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete account. Please try again.');
+      setDeletingAccount(false);
+    }
+  };
+
+  // Buy credit pack
+  const handleBuyCredits = async (packId: string) => {
+    setLoadingCredits(packId);
+    try {
+      const res = await fetch('/api/stripe/buy-credits', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ packId }),
+      });
+      const { url, error } = await res.json();
+      if (error) throw new Error(error);
+      window.location.href = url;
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to start checkout');
+      setLoadingCredits(null);
     }
   };
 
@@ -164,7 +207,7 @@ export default function SettingsPage() {
           </div>
           <CardDescription>
             {isPro
-              ? 'You have unlimited document analyses.'
+              ? `Pro plan: ${userData.usage.used} / 300 analyses used this month.`
               : `Free plan: ${userData.usage.used} / ${userData.usage.limit} analyses used this month.`}
           </CardDescription>
         </CardHeader>
@@ -197,11 +240,51 @@ export default function SettingsPage() {
           ) : (
             <>
               <Separator />
+
+              {/* Credits balance */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Coins className="h-4 w-4 text-emerald-600" />
+                  <span className="text-sm font-medium">Pay-as-you-go credits</span>
+                </div>
+                <span className="text-sm font-semibold">
+                  {userData.credits} {userData.credits === 1 ? 'credit' : 'credits'}
+                </span>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Credits never expire. Each credit = 1 document analysis.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                {[
+                  { id: 'credits_5', label: '5 credits', price: '€3.99' },
+                  { id: 'credits_10', label: '10 credits', price: '€6.99' },
+                ].map((pack) => (
+                  <Button
+                    key={pack.id}
+                    variant="outline"
+                    className="flex flex-col h-auto py-3 gap-0.5"
+                    onClick={() => handleBuyCredits(pack.id)}
+                    disabled={loadingCredits === pack.id}
+                  >
+                    {loadingCredits === pack.id ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <>
+                        <span className="font-semibold">{pack.label}</span>
+                        <span className="text-xs text-muted-foreground">{pack.price}</span>
+                      </>
+                    )}
+                  </Button>
+                ))}
+              </div>
+
+              <Separator />
+
               {/* Pro plan features */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">Upgrade to Pro — €9/month</p>
                 {[
-                  'Unlimited document analyses',
+                  '300 document analyses per month',
                   'All document types supported',
                   'Priority AI processing',
                   'Full history access',
@@ -244,19 +327,74 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle className="text-base text-red-600">Danger Zone</CardTitle>
           <CardDescription>
-            Permanently delete your account and all your data.
+            Permanently delete your account and all your data. This cannot be undone.
           </CardDescription>
         </CardHeader>
         <CardContent>
           <Button
             variant="outline"
             className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300"
-            onClick={() => toast.error('Account deletion — contact support@explainmybill.com')}
+            onClick={() => setShowDeleteDialog(true)}
           >
             Delete account
           </Button>
         </CardContent>
       </Card>
+
+      {/* ── Delete confirmation dialog ── */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <TriangleAlert className="h-5 w-5" />
+              Delete your account?
+            </DialogTitle>
+            <DialogDescription className="space-y-2 pt-1">
+              <span className="block">This will permanently delete:</span>
+              <ul className="list-disc list-inside text-sm space-y-1">
+                <li>Your account and profile</li>
+                <li>All uploaded documents and analyses</li>
+                <li>Your active subscription (if any)</li>
+              </ul>
+              {isPro && (
+                <span className="block pt-2 rounded-md bg-orange-50 border border-orange-200 px-3 py-2 text-sm text-orange-700 font-medium">
+                  Your active Pro subscription will be cancelled immediately. You will not be charged again.
+                </span>
+              )}
+              <span className="block pt-2 font-medium text-foreground">
+                Type <span className="font-mono text-red-600">DELETE</span> to confirm.
+              </span>
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="Type DELETE to confirm"
+            className="font-mono"
+          />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="outline" onClick={() => setDeleteConfirmText('')}>
+                Cancel
+              </Button>
+            </DialogClose>
+            <Button
+              variant="destructive"
+              disabled={deleteConfirmText !== 'DELETE' || deletingAccount}
+              onClick={handleDeleteAccount}
+            >
+              {deletingAccount ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete my account'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
