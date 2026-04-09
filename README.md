@@ -105,15 +105,6 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 
 ---
 
-## Demo Credentials (after seeding)
-
-```
-Email:    demo@explainmybill.com
-Password: Demo1234
-```
-
----
-
 ## Development Commands
 
 ```bash
@@ -130,47 +121,6 @@ npm run db:seed      # Seed demo data
 ```
 
 ---
-
-## Setting Up Stripe (optional)
-
-1. Create a [Stripe account](https://stripe.com) and get your test API keys
-2. Create a **Product** in Stripe Dashboard → Products → Add product
-3. Set a recurring price (e.g., €9/month) and copy the **Price ID**
-4. Add to `.env.local`:
-   ```
-   STRIPE_PRO_PRICE_ID=price_xxxxxxxxxxxxx
-   ```
-
-**For webhooks (local dev):**
-```bash
-# Install Stripe CLI
-npm install -g @stripe/stripe-cli
-
-# Login
-stripe login
-
-# Forward webhooks to your local server
-stripe listen --forward-to localhost:3000/api/stripe/webhook
-```
-
-Copy the webhook secret shown and add it:
-```
-STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxx
-```
-
----
-
-## Setting Up Google OAuth (optional)
-
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project → APIs & Services → Credentials
-3. Create OAuth 2.0 Client ID (Web application)
-4. Add **Authorized redirect URIs**:
-   - `http://localhost:3000/api/auth/callback/google`
-5. Copy client ID and secret to `.env.local`
-
----
-
 ## Project Structure
 
 ```
@@ -256,39 +206,6 @@ Frontend polls /api/documents/:id/status every 3s
 ```
 
 ---
-
-## Deployment (Production)
-
-### Recommended: Vercel + Supabase
-
-1. **Database**: Create a [Supabase](https://supabase.com) PostgreSQL database
-2. **Deploy**: Connect GitHub repo to [Vercel](https://vercel.com)
-3. **Environment variables**: Add all `.env.local` values to Vercel project settings
-4. **File storage**: Replace local file storage with [AWS S3](https://aws.amazon.com/s3/) or [Cloudflare R2](https://www.cloudflare.com/developer-platform/r2/)
-5. **Stripe webhooks**: Add your Vercel domain to Stripe webhook endpoints
-
-### S3 File Storage (production swap)
-
-Replace `saveUploadedFile()` in `src/lib/parsers/document.ts` with:
-
-```typescript
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
-
-const s3 = new S3Client({ region: process.env.AWS_REGION });
-
-export async function saveUploadedFile(buffer: Buffer, name: string, userId: string) {
-  const key = `uploads/${userId}/${Date.now()}_${name}`;
-  await s3.send(new PutObjectCommand({
-    Bucket: process.env.AWS_BUCKET!,
-    Key: key,
-    Body: buffer,
-  }));
-  return key; // Store the S3 key instead of local path
-}
-```
-
----
-
 ## Future Features & Improvements
 
 ### Near-term
